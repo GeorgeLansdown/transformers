@@ -45,6 +45,8 @@ class ChameleonVQVAEConfig(PretrainedConfig):
             Resolution of the input images.
         in_channels (`int`, *optional*, defaults to 3):
             Number of input channels.
+        out_channels (`int`, *optional*, defaults to 3):
+            Number of output channels.
         base_channels (`int`, *optional*, defaults to 128):
             Base channel count.
         channel_multiplier (`List[int]`, *optional*, defaults to `[1, 1, 2, 2, 4]`):
@@ -172,6 +174,12 @@ class ChameleonConfig(PretrainedConfig):
             ChameleonVQConfig instance containing the configuration for the VQ-VAE model.
         vocabulary_map (`dict`, *optional*):
             A dictionary containing the vocabulary map from the tokenizer. Used to obtain tokens from the image inputs.
+        image_token_index (`int`, *optional*, defaults to 8711):
+            The ID for the token used to represent the image in the input sequence.
+        boi_token_id (`int`, *optional*, defaults to 8197):
+            Beginning of image token stream id.
+        eoi_token_id (`int`, *optional*, defaults to 8196):
+            End of image token stream id.
         mlp_bias (`bool`, *optional*, defaults to `False`):
             Whether to use a bias in up_proj, down_proj and gate_proj layers in the MLP layers.
 
@@ -218,7 +226,7 @@ class ChameleonConfig(PretrainedConfig):
         swin_norm=False,
         vq_config=None,
         vocabulary_map=None,
-        image_token_id=8711,
+        image_token_index=8711,
         boi_token_id=8197,
         eoi_token_id=8196,
         mlp_bias=False,
@@ -252,8 +260,7 @@ class ChameleonConfig(PretrainedConfig):
         self.vq_config = ChameleonVQVAEConfig(**vq_config)
 
         self.vocabulary_map = vocabulary_map
-
-        self.image_token_id = image_token_id
+        self.image_token_index = image_token_index
         self.boi_token_id = boi_token_id
         self.eoi_token_id = eoi_token_id
 
@@ -285,6 +292,3 @@ class ChameleonConfig(PretrainedConfig):
             )
         if rope_scaling_factor is None or not isinstance(rope_scaling_factor, float) or rope_scaling_factor <= 1.0:
             raise ValueError(f"`rope_scaling`'s factor field must be a float > 1, got {rope_scaling_factor}")
-
-
-__all__ = ["ChameleonConfig", "ChameleonVQVAEConfig"]
