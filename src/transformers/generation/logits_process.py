@@ -2939,3 +2939,91 @@ class SynthIDTextWatermarkLogitsProcessor(LogitsProcessor):
             The expected mean g-value for watermarked text.
         """
         return coinflip_prob + coinflip_prob * (1 - coinflip_prob) * (1 - (1 / vocab_size))
+
+class AllowOnlyTokensAtRelativeOffsetLogitsProcessor(LogitsProcessor):
+    r"""
+    [`AllowOnlyTokensAtRelativeOffsetLogitsProcessor`] suppresses the logits of tokens aside from a specific set of tokens
+    that can be generated at a relative offset from a trigger token (e.g. begin image token). If `exclusive` is set to
+    `True`, the set of tokens allowed at this offset will not be allowed anywhere else. This is useful for enforcing
+    multimodal generation constraints with begin and end marker tokens.
+    Originally created for [Chameleon](https://huggingface.co/docs/transformers/model_doc/chameleon).
+    Args:
+        trigger_token_id (`int`):
+            The token id that triggers the offset check.
+        allowed_token_ids (`List[int]`):
+            The list of token ids that are allowed at the specified offset.
+        offset (`int`):
+            The relative offset from the trigger token.
+        exclusive (`bool`, *optional*, defaults to `False`):
+            If `True`, the set of tokens allowed at this offset will not be allowed anywhere else.
+        device (`str`, *optional*, defaults to `cpu`):
+            The device to allocate the util tensor on.
+    """
+    def __init__(
+        self,
+        trigger_token_id: int,
+        allowed_token_ids: List[int],
+        offset: int,
+        exclusive: bool = False,
+        device: str = "cpu",
+    ):
+        self.trigger_token_id = trigger_token_id
+        self.allowed_token_ids = torch.tensor(allowed_token_ids, device=device)
+        self.offset = offset
+        self.exclusive = exclusive
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        if input_ids.shape[1] < self.offset and not self.exclusive:
+            return scores
+        disallowed_tokens_mask = torch.ones_like(scores, dtype=torch.bool)
+        disallowed_tokens_mask[:, self.allowed_token_ids] = False
+        if input_ids.shape[1] < self.offset:
+            return scores.masked_fill(~disallowed_tokens_mask, torch.finfo(scores.dtype).min)
+        trigger_positions = (input_ids[:, -self.offset] == self.trigger_token_id).unsqueeze(-1)
+        if self.exclusive:
+            return scores.masked_fill(~(disallowed_tokens_mask ^ trigger_positions), torch.finfo(scores.dtype).min)
+        return scores.masked_fill(disallowed_tokens_mask & trigger_positions, torch.finfo(scores.dtype).min)
+class AllowOnlyTokensInRelativeWindowLogitsProcessor(LogitsProcessor):
+    r"""
+    [`AllowOnlyTokensInRelativeWindowLogitsProcessor`] suppresses the logits of tokens aside from a specific set of tokens
+    that can be generated at a relative window from a trigger token (e.g. begin image token). If `exclusive` is set to
+    `True`, the set of tokens allowed at this window will not be allowed anywhere else. This is useful for enforcing
+    multimodal generation constraints.
+    Originally created for [Chameleon](https://huggingface.co/docs/transformers/model_doc/chameleon).
+    Args:
+        trigger_token_id (`int`):
+            The token id that triggers the window check.
+        allowed_token_ids (`List[int]`):
+            The list of token ids that are allowed at the specified relative window.
+        window_width (`int`):
+            The window_width of the window from the trigger token.
+        exclusive (`bool`, *optional*, defaults to `False`):
+            If `True`, the set of tokens allowed at this window will not be allowed anywhere else.
+        device (`str`, *optional*, defaults to `cpu`):
+            The device to allocate the util tensor on.
+    """
+    def __init__(
+        self,
+        trigger_token_id: int,
+        allowed_token_ids: List[int],
+        window_width: int,
+        exclusive: bool = False,
+        device: str = "cpu",
+    ):
+        self.trigger_token_id = trigger_token_id
+        self.allowed_token_ids = torch.tensor(allowed_token_ids, device=device).unsqueeze(0)
+        self.window_width = window_width
+        self.exclusive = exclusive
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        window_width = min(self.window_width, input_ids.shape[1])
+        trigger_positions = (input_ids[:, -window_width:] == self.trigger_token_id).any(dim=1).unsqueeze(-1)
+        disallowed_tokens_mask = torch.ones_like(scores, dtype=torch.bool)
+        disallowed_tokens_mask[:, self.allowed_token_ids] = False
+        if self.exclusive:
+            return scores.masked_fill(
+                ~(disallowed_tokens_mask ^ trigger_positions),
+                torch.finfo(scores.dtype).min,
+            )
+        return scores.masked_fill(
+            disallowed_tokens_mask & trigger_positions,
+            torch.finfo(scores.dtype).min,
+        )
